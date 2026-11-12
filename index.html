@@ -1,0 +1,2092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Countdown Timer</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* Dynamic Theme Variables (Default: 藤紫色 × 钛啡绿) */
+    :root {
+      --bg-primary: #5e55a2;
+      --bg-surface: #4e468c;
+      --bg-surface-hover: #463e80;
+      --bg-track: #484082;
+      --accent: #91c53a;
+      --accent-rgb: 145, 197, 58;
+      --on-accent: #5e55a2;
+      --text-secondary: #e2def8;
+      --text-muted: #d6d0f5;
+      --loader-step: #f2f2f2;
+    }
+
+    /* Ensure zero layout jitter during countdown */
+    .tabular-digits {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1, "cv05" 1;
+    }
+
+    /* Monumental responsive scale that fits 00:05:00 cleanly on mobile and scales huge on desktop */
+    .timer-display-size {
+      font-size: clamp(2.75rem, 13.5vw, 10rem);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    /* Refined ambient glow for dynamic accent digits */
+    .chartreuse-digit-glow {
+      text-shadow:
+        0 6px 32px rgba(var(--accent-rgb), 0.22),
+        0 2px 4px rgba(0, 0, 0, 0.16);
+    }
+
+    /* Crisp accent progress bar glow */
+    .chartreuse-bar-glow {
+      box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.55);
+    }
+
+    /* Subtle pulse when countdown finishes */
+    @keyframes gentleCompletePulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+        filter: drop-shadow(0 0 18px rgba(var(--accent-rgb), 0.42));
+      }
+      50% {
+        opacity: 0.45;
+        transform: scale(0.992);
+        filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.08));
+      }
+    }
+
+    .animate-complete-pulse {
+      animation: gentleCompletePulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Subtle colon blink when actively running */
+    @keyframes colonBreath {
+      0%, 100% {
+        opacity: 0.85;
+      }
+      50% {
+        opacity: 0.25;
+      }
+    }
+
+    .colon-running {
+      animation: colonBreath 1s ease-in-out infinite;
+    }
+
+    /* Remove native number spinners */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+
+    /* From Uiverse.io by alexruix */
+    .loader {
+      position: relative;
+      width: 120px;
+      height: 90px;
+      margin: 0 auto;
+    }
+
+    .loader:before {
+      content: "";
+      position: absolute;
+      bottom: 30px;
+      left: 50px;
+      height: 30px;
+      width: 30px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: loading-bounce 0.5s ease-in-out infinite alternate;
+    }
+
+    .loader:after {
+      content: "";
+      position: absolute;
+      right: 0;
+      top: 0;
+      height: 7px;
+      width: 45px;
+      border-radius: 4px;
+      box-shadow: 0 5px 0 var(--loader-step), -35px 50px 0 var(--loader-step), -70px 95px 0 var(--loader-step);
+      animation: loading-step 1s ease-in-out infinite;
+    }
+
+    @keyframes loading-bounce {
+      0% {
+        transform: scale(1, 0.7);
+      }
+
+      40% {
+        transform: scale(0.8, 1.2);
+      }
+
+      60% {
+        transform: scale(1, 1);
+      }
+
+      100% {
+        bottom: 140px;
+      }
+    }
+
+    @keyframes loading-step {
+      0% {
+        box-shadow: 0 10px 0 rgba(0, 0, 0, 0),
+                0 10px 0 var(--loader-step),
+                -35px 50px 0 var(--loader-step),
+                -70px 90px 0 var(--loader-step);
+      }
+
+      100% {
+        box-shadow: 0 10px 0 var(--loader-step),
+                -35px 50px 0 var(--loader-step),
+                -70px 90px 0 var(--loader-step),
+                -70px 90px 0 rgba(0, 0, 0, 0);
+      }
+    }
+
+    /* Pause loader keyframes while timer is paused */
+    .loader.is-paused::before,
+    .loader.is-paused::after {
+      animation-play-state: paused;
+    }
+
+    /* From Uiverse.io by gharsh11032000 — dynamically themed */
+    .animated-button {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 152px;
+      gap: 4px;
+      padding: 16px 36px;
+      border: 4px solid;
+      border-color: transparent;
+      font-size: 16px;
+      background-color: var(--bg-surface);
+      border-radius: 100px;
+      font-weight: 600;
+      color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent);
+      cursor: pointer;
+      overflow: hidden;
+      transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .animated-button svg {
+      position: absolute;
+      width: 24px;
+      fill: var(--accent);
+      z-index: 9;
+      transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .animated-button .arr-1 {
+      right: 16px;
+    }
+
+    .animated-button .arr-2 {
+      left: -25%;
+    }
+
+    .animated-button .circle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      background-color: var(--accent);
+      border-radius: 50%;
+      opacity: 0;
+      transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .animated-button .text {
+      position: relative;
+      z-index: 1;
+      transform: translateX(-12px);
+      transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .animated-button:hover {
+      box-shadow: 0 0 0 12px transparent;
+      color: var(--on-accent);
+      border-radius: 12px;
+    }
+
+    .animated-button:hover .arr-1 {
+      right: -25%;
+    }
+
+    .animated-button:hover .arr-2 {
+      left: 16px;
+    }
+
+    .animated-button:hover .text {
+      transform: translateX(12px);
+    }
+
+    .animated-button:hover svg {
+      fill: var(--on-accent);
+    }
+
+    .animated-button:active {
+      scale: 0.95;
+      box-shadow: 0 0 0 4px var(--accent);
+    }
+
+    .animated-button:hover .circle {
+      width: 220px;
+      height: 220px;
+      opacity: 1;
+    }
+
+    .animated-button:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* From Uiverse.io by Botwe-Felix5820 — compact pill shape preserving original header layout */
+    .jello-top-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 0.38em;
+      height: 2.25em;
+      padding: 0 1em;
+      border-radius: 100px;
+      background: transparent;
+      -webkit-animation: jello-horizontal 0.9s both;
+      animation: jello-horizontal 0.9s both;
+      border: 1.5px solid var(--accent);
+      outline: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .jello-top-btn:hover {
+      background: var(--accent);
+      color: var(--on-accent);
+      -webkit-animation: squeeze3124 0.9s both;
+      animation: squeeze3124 0.9s both;
+    }
+
+    @-webkit-keyframes jello-horizontal {
+      0% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+      30% {
+        -webkit-transform: scale3d(1.25, 0.75, 1);
+        transform: scale3d(1.25, 0.75, 1);
+      }
+      40% {
+        -webkit-transform: scale3d(0.75, 1.25, 1);
+        transform: scale3d(0.75, 1.25, 1);
+      }
+      50% {
+        -webkit-transform: scale3d(1.15, 0.85, 1);
+        transform: scale3d(1.15, 0.85, 1);
+      }
+      65% {
+        -webkit-transform: scale3d(0.95, 1.05, 1);
+        transform: scale3d(0.95, 1.05, 1);
+      }
+      75% {
+        -webkit-transform: scale3d(1.05, 0.95, 1);
+        transform: scale3d(1.05, 0.95, 1);
+      }
+      100% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+    }
+
+    @keyframes jello-horizontal {
+      0% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+      30% {
+        -webkit-transform: scale3d(1.25, 0.75, 1);
+        transform: scale3d(1.25, 0.75, 1);
+      }
+      40% {
+        -webkit-transform: scale3d(0.75, 1.25, 1);
+        transform: scale3d(0.75, 1.25, 1);
+      }
+      50% {
+        -webkit-transform: scale3d(1.15, 0.85, 1);
+        transform: scale3d(1.15, 0.85, 1);
+      }
+      65% {
+        -webkit-transform: scale3d(0.95, 1.05, 1);
+        transform: scale3d(0.95, 1.05, 1);
+      }
+      75% {
+        -webkit-transform: scale3d(1.05, 0.95, 1);
+        transform: scale3d(1.05, 0.95, 1);
+      }
+      100% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+    }
+
+    @-webkit-keyframes squeeze3124 {
+      0% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+      30% {
+        -webkit-transform: scale3d(1.25, 0.75, 1);
+        transform: scale3d(1.25, 0.75, 1);
+      }
+      40% {
+        -webkit-transform: scale3d(0.75, 1.25, 1);
+        transform: scale3d(0.75, 1.25, 1);
+      }
+      50% {
+        -webkit-transform: scale3d(1.15, 0.85, 1);
+        transform: scale3d(1.15, 0.85, 1);
+      }
+      65% {
+        -webkit-transform: scale3d(0.95, 1.05, 1);
+        transform: scale3d(0.95, 1.05, 1);
+      }
+      75% {
+        -webkit-transform: scale3d(1.05, 0.95, 1);
+        transform: scale3d(1.05, 0.95, 1);
+      }
+      100% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+    }
+
+    @keyframes squeeze3124 {
+      0% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+      30% {
+        -webkit-transform: scale3d(1.25, 0.75, 1);
+        transform: scale3d(1.25, 0.75, 1);
+      }
+      40% {
+        -webkit-transform: scale3d(0.75, 1.25, 1);
+        transform: scale3d(0.75, 1.25, 1);
+      }
+      50% {
+        -webkit-transform: scale3d(1.15, 0.85, 1);
+        transform: scale3d(1.15, 0.85, 1);
+      }
+      65% {
+        -webkit-transform: scale3d(0.95, 1.05, 1);
+        transform: scale3d(0.95, 1.05, 1);
+      }
+      75% {
+        -webkit-transform: scale3d(1.05, 0.95, 1);
+        transform: scale3d(1.05, 0.95, 1);
+      }
+      100% {
+        -webkit-transform: scale3d(1, 1, 1);
+        transform: scale3d(1, 1, 1);
+      }
+    }
+
+    /* Native color input styling inside DIY panel */
+    input[type="color"] {
+      -webkit-appearance: none;
+      border: none;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    input[type="color"]::-webkit-color-swatch {
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      border-radius: 10px;
+    }
+
+    /* From Uiverse.io by ilkhoeri — 3D rotating color cards inside DIY drawer */
+    .wrapper {
+      width: 100%;
+      height: 215px;
+      position: relative;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: pan-y;
+    }
+
+    .wrapper.is-grabbing {
+      cursor: grabbing;
+    }
+
+    .inner {
+      --w: 64px;
+      --h: 96px;
+      --translateZ: 146px;
+      --rotateX: -15deg;
+      --perspective: 1000px;
+      position: absolute;
+      width: var(--w);
+      height: var(--h);
+      top: 24%;
+      left: calc(50% - (var(--w) / 2));
+      z-index: 2;
+      transform-style: preserve-3d;
+      transform: perspective(var(--perspective)) rotateX(var(--rotateX)) rotateY(0deg);
+      will-change: transform;
+    }
+
+    .card {
+      position: absolute;
+      border: 2px solid rgba(var(--color-card), 0.95);
+      border-radius: 12px;
+      overflow: hidden;
+      inset: 0;
+      cursor: pointer;
+      padding: 0;
+      transform: rotateY(calc((360deg / var(--quantity)) * var(--index)))
+        translateZ(var(--translateZ));
+      transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+
+    .card:hover {
+      box-shadow: 0 0 16px rgba(var(--color-card), 0.75);
+    }
+
+    .card.is-active-card {
+      box-shadow: 0 0 0 2px #ffffff, 0 0 18px rgba(var(--color-card), 0.9);
+    }
+
+    .img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 5px;
+      background: var(--card-bg, #0000)
+        radial-gradient(
+          circle,
+          rgba(var(--color-card), 0.2) 0%,
+          rgba(var(--color-card), 0.6) 80%,
+          rgba(var(--color-card), 0.9) 100%
+        );
+    }
+  </style>
+</head>
+<body class="bg-[var(--bg-primary)] text-[var(--accent)] font-sans antialiased min-h-screen flex flex-col justify-between selection:bg-[var(--accent)] selection:text-[var(--on-accent)] overflow-x-hidden transition-colors duration-300">
+
+  <!-- Razor-thin top progress hairline -->
+  <div class="fixed top-0 left-0 right-0 h-[3px] bg-[var(--bg-track)] z-20 pointer-events-none transition-colors duration-300">
+    <div
+      id="progressBar"
+      class="h-full bg-[var(--accent)] chartreuse-bar-glow transition-[width,background-color] duration-150 ease-linear"
+      style="width: 100%;"
+    ></div>
+  </div>
+
+  <!-- Top Header Bar: Preserves original single-row layout with DIY on the left of Sound On -->
+  <header class="w-full max-w-5xl mx-auto px-5 sm:px-8 pt-6 pb-2 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <!-- Four-point star motif inspired by the palette card -->
+      <svg class="w-4 h-4 text-[var(--accent)] shrink-0 transition-colors duration-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 1L14.8 9.2L23 12L14.8 14.8L12 23L9.2 14.8L1 12L9.2 9.2L12 1Z" />
+      </svg>
+      <span
+        id="statusDot"
+        class="w-2 h-2 rounded-full bg-[var(--accent)]/60 transition-colors duration-300"
+      ></span>
+      <span
+        id="statusLabel"
+        class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)] select-none transition-colors duration-300"
+      >
+        Ready
+      </span>
+    </div>
+
+    <!-- Top-Right Horizontal Controls: DIY on the left, Sound On on the right -->
+    <div class="flex items-center gap-2.5">
+      <!-- DIY Theme Button (centered text, compact pill shape) -->
+      <button
+        id="diyToggleBtn"
+        type="button"
+        aria-label="Open DIY color theme customizer"
+        aria-expanded="false"
+        title="DIY 自定义配色"
+        class="jello-top-btn min-w-[4.4em]"
+      >
+        <span class="w-full text-center">DIY</span>
+      </button>
+
+      <!-- Sound Chime Toggle -->
+      <button
+        id="soundToggleBtn"
+        type="button"
+        aria-label="Toggle completion sound"
+        aria-pressed="true"
+        title="Toggle completion sound"
+        class="jello-top-btn group"
+      >
+        <!-- Sound On Icon -->
+        <svg id="iconSoundOn" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>
+        <!-- Sound Off Icon (hidden by default) -->
+        <svg id="iconSoundOff" class="w-3.5 h-3.5 hidden shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <line x1="23" y1="9" x2="17" y2="15"></line>
+          <line x1="17" y1="9" x2="23" y2="15"></line>
+        </svg>
+        <span id="soundLabel">Sound On</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Central Focal Point: Oversized Countdown Display & Controls -->
+  <main class="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 py-6 w-full max-w-5xl mx-auto">
+
+    <!-- Quick Duration Presets -->
+    <div
+      id="presetContainer"
+      class="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mb-6 sm:mb-10 transition-opacity duration-300"
+      aria-label="Preset durations"
+    >
+      <button type="button" data-seconds="60" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-medium tracking-wide border border-[var(--accent)]/30 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-hover)] transition-all duration-150">
+        1m
+      </button>
+      <button type="button" data-seconds="300" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)] shadow-[0_4px_14px_rgba(var(--accent-rgb),0.28)] transition-all duration-150">
+        5m
+      </button>
+      <button type="button" data-seconds="600" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-medium tracking-wide border border-[var(--accent)]/30 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-hover)] transition-all duration-150">
+        10m
+      </button>
+      <button type="button" data-seconds="900" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-medium tracking-wide border border-[var(--accent)]/30 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-hover)] transition-all duration-150">
+        15m
+      </button>
+      <button type="button" data-seconds="1500" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-medium tracking-wide border border-[var(--accent)]/30 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-hover)] transition-all duration-150">
+        25m
+      </button>
+      <button type="button" data-seconds="3600" class="preset-btn px-3.5 py-1.5 rounded-full text-xs font-medium tracking-wide border border-[var(--accent)]/30 bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-hover)] transition-all duration-150">
+        1h
+      </button>
+    </div>
+
+    <!-- Bouncing Stair-Step Loader positioned directly above the countdown digits -->
+    <div id="loaderWrapper" class="hidden mt-[72px] mb-[24px] w-full flex justify-center" aria-hidden="true">
+      <div class="loader" id="loader"></div>
+    </div>
+
+    <!-- Extra-Large Countdown Clock -->
+    <div
+      id="timerDisplayWrapper"
+      class="relative flex items-center justify-center select-none my-2 sm:my-4"
+      role="timer"
+      aria-live="off"
+    >
+      <div class="flex items-center justify-center tabular-digits timer-display-size font-bold text-[var(--accent)] chartreuse-digit-glow transition-colors duration-300">
+
+        <!-- HOURS UNIT -->
+        <div class="unit-group group relative flex flex-col items-center" data-unit="hours">
+          <button
+            type="button"
+            data-action="inc"
+            data-unit="hours"
+            aria-label="Increase hours"
+            class="stepper-btn mb-1 sm:mb-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+
+          <div class="relative flex items-center justify-center">
+            <button
+              type="button"
+              id="hoursDisplay"
+              data-unit="hours"
+              title="Click to edit hours"
+              class="digit-trigger px-1 sm:px-2 py-0.5 rounded-2xl hover:bg-[var(--bg-surface)] focus:bg-[var(--bg-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 transition-colors cursor-pointer"
+            >00</button>
+            <input
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              id="hoursInput"
+              data-unit="hours"
+              aria-label="Hours"
+              class="digit-input hidden w-[2.15ch] text-center bg-[var(--bg-surface)] text-[var(--accent)] rounded-2xl border-b-2 border-[var(--accent)] focus:outline-none px-1 sm:px-2 py-0.5"
+            />
+          </div>
+
+          <button
+            type="button"
+            data-action="dec"
+            data-unit="hours"
+            aria-label="Decrease hours"
+            class="stepper-btn mt-1 sm:mt-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <span class="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)] transition-colors duration-300">
+            HRS
+          </span>
+        </div>
+
+        <!-- COLON SEPARATOR 1 -->
+        <span class="timer-colon text-[var(--accent)]/50 font-normal px-0.5 sm:px-1.5 -mt-6 sm:-mt-7 transition-opacity">:</span>
+
+        <!-- MINUTES UNIT -->
+        <div class="unit-group group relative flex flex-col items-center" data-unit="minutes">
+          <button
+            type="button"
+            data-action="inc"
+            data-unit="minutes"
+            aria-label="Increase minutes"
+            class="stepper-btn mb-1 sm:mb-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+
+          <div class="relative flex items-center justify-center">
+            <button
+              type="button"
+              id="minutesDisplay"
+              data-unit="minutes"
+              title="Click to edit minutes"
+              class="digit-trigger px-1 sm:px-2 py-0.5 rounded-2xl hover:bg-[var(--bg-surface)] focus:bg-[var(--bg-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 transition-colors cursor-pointer"
+            >05</button>
+            <input
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              id="minutesInput"
+              data-unit="minutes"
+              aria-label="Minutes"
+              class="digit-input hidden w-[2.15ch] text-center bg-[var(--bg-surface)] text-[var(--accent)] rounded-2xl border-b-2 border-[var(--accent)] focus:outline-none px-1 sm:px-2 py-0.5"
+            />
+          </div>
+
+          <button
+            type="button"
+            data-action="dec"
+            data-unit="minutes"
+            aria-label="Decrease minutes"
+            class="stepper-btn mt-1 sm:mt-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <span class="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)] transition-colors duration-300">
+            MIN
+          </span>
+        </div>
+
+        <!-- COLON SEPARATOR 2 -->
+        <span class="timer-colon text-[var(--accent)]/50 font-normal px-0.5 sm:px-1.5 -mt-6 sm:-mt-7 transition-opacity">:</span>
+
+        <!-- SECONDS UNIT -->
+        <div class="unit-group group relative flex flex-col items-center" data-unit="seconds">
+          <button
+            type="button"
+            data-action="inc"
+            data-unit="seconds"
+            aria-label="Increase seconds"
+            class="stepper-btn mb-1 sm:mb-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+
+          <div class="relative flex items-center justify-center">
+            <button
+              type="button"
+              id="secondsDisplay"
+              data-unit="seconds"
+              title="Click to edit seconds"
+              class="digit-trigger px-1 sm:px-2 py-0.5 rounded-2xl hover:bg-[var(--bg-surface)] focus:bg-[var(--bg-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 transition-colors cursor-pointer"
+            >00</button>
+            <input
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              id="secondsInput"
+              data-unit="seconds"
+              aria-label="Seconds"
+              class="digit-input hidden w-[2.15ch] text-center bg-[var(--bg-surface)] text-[var(--accent)] rounded-2xl border-b-2 border-[var(--accent)] focus:outline-none px-1 sm:px-2 py-0.5"
+            />
+          </div>
+
+          <button
+            type="button"
+            data-action="dec"
+            data-unit="seconds"
+            aria-label="Decrease seconds"
+            class="stepper-btn mt-1 sm:mt-2 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-surface)] opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-all duration-150 focus:outline-none"
+          >
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <span class="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)] transition-colors duration-300">
+            SEC
+          </span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Subtle Helper Caption -->
+    <p
+      id="helperText"
+      class="mt-4 sm:mt-6 text-xs text-[var(--text-muted)] tracking-wide text-center h-5 transition-colors duration-300"
+    >
+      Click any digit to adjust duration
+    </p>
+
+    <!-- Primary Controls: Uiverse.io Animated Pill Buttons -->
+    <div
+      class="mt-6 sm:mt-8 flex flex-wrap items-center justify-center gap-4 sm:gap-5 w-full max-w-2xl"
+      role="group"
+      aria-label="Timer controls"
+    >
+      <!-- START / RESUME BUTTON -->
+      <button
+        id="startBtn"
+        type="button"
+        class="animated-button focus:outline-none"
+      >
+        <svg viewBox="0 0 24 24" class="arr-2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+        <span id="startBtnText" class="text">Start</span>
+        <span class="circle"></span>
+        <svg viewBox="0 0 24 24" class="arr-1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+      </button>
+
+      <!-- PAUSE BUTTON -->
+      <button
+        id="pauseBtn"
+        type="button"
+        disabled
+        class="animated-button focus:outline-none"
+      >
+        <svg viewBox="0 0 24 24" class="arr-2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+        <span class="text">Pause</span>
+        <span class="circle"></span>
+        <svg viewBox="0 0 24 24" class="arr-1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+      </button>
+
+      <!-- RESET BUTTON -->
+      <button
+        id="resetBtn"
+        type="button"
+        class="animated-button focus:outline-none"
+      >
+        <svg viewBox="0 0 24 24" class="arr-2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+        <span class="text">Reset</span>
+        <span class="circle"></span>
+        <svg viewBox="0 0 24 24" class="arr-1" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.1716 10.9999L10.8076 5.63589L12.2218 4.22168L20 11.9999L12.2218 19.778L10.8076 18.3638L16.1716 12.9999H4V10.9999H16.1716Z"></path>
+        </svg>
+      </button>
+    </div>
+
+  </main>
+
+  <!-- Minimalist Footer with Keyboard Shortcut Hint -->
+  <footer class="w-full max-w-5xl mx-auto px-6 pb-6 pt-2 flex items-center justify-center text-[11px] text-[var(--text-muted)] tracking-wide transition-colors duration-300">
+    <div class="hidden sm:flex items-center gap-4">
+      <span><kbd class="px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] bg-[var(--bg-surface)] border border-[var(--accent)]/30 rounded">Space</kbd> Start / Pause</span>
+      <span class="text-[var(--accent)]/40">•</span>
+      <span><kbd class="px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] bg-[var(--bg-surface)] border border-[var(--accent)]/30 rounded">R</kbd> Reset</span>
+    </div>
+  </footer>
+
+  <!-- DIY Color Theme Slide-Over Drawer & Subtle Backdrop -->
+  <div
+    id="diyBackdrop"
+    class="fixed inset-0 bg-black/35 backdrop-blur-[2px] z-30 hidden opacity-0 transition-opacity duration-200"
+    aria-hidden="true"
+  ></div>
+
+  <aside
+    id="diyDrawer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="diyDrawerTitle"
+    class="fixed top-0 right-0 bottom-0 w-full max-w-[360px] bg-[var(--bg-surface)] text-[var(--text-secondary)] border-l border-[var(--accent)]/25 shadow-2xl z-40 transform translate-x-full transition-transform duration-300 ease-out flex flex-col"
+  >
+    <!-- Drawer Header -->
+    <div class="px-5 py-4 border-b border-[var(--accent)]/20 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-[var(--accent)]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 1L14.8 9.2L23 12L14.8 14.8L12 23L9.2 14.8L1 12L9.2 9.2L12 1Z" />
+        </svg>
+        <h2 id="diyDrawerTitle" class="text-sm font-bold tracking-wide text-[var(--text-secondary)]">
+          DIY 主题配色
+        </h2>
+      </div>
+
+      <button
+        id="closeDiyBtn"
+        type="button"
+        aria-label="Close DIY color panel"
+        class="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-primary)]/50 transition-colors focus:outline-none"
+      >
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Drawer Scrollable Body -->
+    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+      <!-- Quick Swap Background / Accent Button -->
+      <div class="flex items-center justify-between p-3 rounded-2xl bg-[var(--bg-primary)]/65 border border-[var(--accent)]/25">
+        <div>
+          <div class="text-xs font-semibold text-[var(--text-secondary)]">双色互换</div>
+          <div class="text-[11px] text-[var(--text-muted)]">一键反转背景色与数字色</div>
+        </div>
+        <button
+          id="swapColorsBtn"
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--accent)] text-[var(--on-accent)] hover:opacity-90 active:scale-95 transition-all"
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="17 1 21 5 17 9"></polyline>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+            <polyline points="7 23 3 19 7 15"></polyline>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          </svg>
+          <span>互换</span>
+        </button>
+      </div>
+
+      <!-- Curated Color Palette Cards -->
+      <div>
+        <div class="flex items-center justify-between mb-2.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">精选色卡 · 左右滑动旋转</span>
+          <span id="activePaletteName" class="text-[11px] font-medium text-[var(--accent)]">藤紫 × 钛啡绿</span>
+        </div>
+        <div id="paletteGrid" class="wrapper rounded-2xl bg-[var(--bg-primary)]/45 border border-[var(--accent)]/20">
+          <!-- Populated dynamically by JS -->
+        </div>
+      </div>
+
+      <!-- Custom Two-Tone Color Pickers -->
+      <div class="pt-1 border-t border-[var(--accent)]/15 space-y-3">
+        <div class="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">自由调色</div>
+
+        <!-- Background Color Control -->
+        <div class="flex items-center justify-between p-3 rounded-2xl bg-[var(--bg-primary)]/65 border border-[var(--accent)]/20">
+          <div class="flex items-center gap-3">
+            <input
+              id="customBgPicker"
+              type="color"
+              value="#5e55a2"
+              aria-label="选择背景颜色"
+              class="w-9 h-9 rounded-xl shrink-0"
+            />
+            <div>
+              <div class="text-xs font-semibold text-[var(--text-secondary)]">背景主色</div>
+              <div class="text-[11px] text-[var(--text-muted)]">画布底色</div>
+            </div>
+          </div>
+          <input
+            id="customBgHex"
+            type="text"
+            maxlength="7"
+            value="#5E55A2"
+            aria-label="背景十六进制色值"
+            class="w-20 px-2 py-1 text-xs font-mono uppercase text-center rounded-lg bg-[var(--bg-surface)] text-[var(--accent)] border border-[var(--accent)]/30 focus:outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+
+        <!-- Accent / Digits Color Control -->
+        <div class="flex items-center justify-between p-3 rounded-2xl bg-[var(--bg-primary)]/65 border border-[var(--accent)]/20">
+          <div class="flex items-center gap-3">
+            <input
+              id="customAccentPicker"
+              type="color"
+              value="#91c53a"
+              aria-label="选择数字与按钮主色"
+              class="w-9 h-9 rounded-xl shrink-0"
+            />
+            <div>
+              <div class="text-xs font-semibold text-[var(--text-secondary)]">数字与交互色</div>
+              <div class="text-[11px] text-[var(--text-muted)]">计时数字 / 进度条 / 按钮</div>
+            </div>
+          </div>
+          <input
+            id="customAccentHex"
+            type="text"
+            maxlength="7"
+            value="#91C53A"
+            aria-label="数字十六进制色值"
+            class="w-20 px-2 py-1 text-xs font-mono uppercase text-center rounded-lg bg-[var(--bg-surface)] text-[var(--accent)] border border-[var(--accent)]/30 focus:outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Drawer Footer -->
+    <div class="px-5 py-3.5 border-t border-[var(--accent)]/20 flex items-center justify-between gap-3">
+      <button
+        id="resetThemeBtn"
+        type="button"
+        class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-[var(--accent)]/35 text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+      >
+        恢复默认
+      </button>
+      <button
+        id="doneDiyBtn"
+        type="button"
+        class="flex-1 py-2 rounded-xl text-xs font-semibold bg-[var(--accent)] text-[var(--on-accent)] hover:opacity-90 transition-opacity"
+      >
+        完成
+      </button>
+    </div>
+  </aside>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // --- Curated Color Palettes (from user's color cards) ---
+      const COLOR_PALETTES = [
+        { name: '藤紫色 × 钛啡绿', bg: '#5e55a2', accent: '#91c53a' },
+        { name: '甜酷粉 × 炭黑色', bg: '#E6397C', accent: '#1A1A1D' },
+        { name: '深海蓝 × 柔奶白', bg: '#122e8a', accent: '#f5efea' },
+        { name: '捣蓝色 × 清水蓝', bg: '#113056', accent: '#91cfd5' },
+        { name: '茶花红 × 无白色', bg: '#e72d48', accent: '#f1dddf' },
+        { name: '苹果青 × 奶酪色', bg: '#73AE52', accent: '#FBF1D7' },
+        { name: '荷青色 × 暖橘色', bg: '#A1E6DD', accent: '#FF6F2C' },
+        { name: '荣耀金 × 曜石黑', bg: '#FFD700', accent: '#000000' },
+        { name: '柠檬黄 × 帝王紫', bg: '#FFF000', accent: '#7B2CBF' },
+        { name: '桃绯粉 × 薄荷青', bg: '#F35B83', accent: '#8AEED1' },
+        { name: '裸桃粉 × 苔青色', bg: '#FACBC6', accent: '#465C47' },
+        { name: '雾霭蓝 × 柔柠黄', bg: '#8DA6D2', accent: '#F9D77C' },
+        { name: '熔岩 × 深灰绿', bg: '#EB4743', accent: '#003D37' },
+      ];
+
+      // --- Configuration & State ---
+      const DEFAULT_SECONDS = 300; // 05:00 default
+      const THEME_STORAGE_KEY = 'countdown_diy_theme_v1';
+
+      const state = {
+        configuredMs: DEFAULT_SECONDS * 1000,
+        remainingMs: DEFAULT_SECONDS * 1000,
+        status: 'idle', // 'idle' | 'running' | 'paused' | 'completed'
+        endTime: null,
+        rafId: null,
+        soundEnabled: true,
+        audioCtx: null,
+        theme: {
+          bg: '#5e55a2',
+          accent: '#91c53a',
+          name: '藤紫色 × 钛啡绿',
+        },
+      };
+
+      // --- DOM References ---
+      const progressBar = document.getElementById('progressBar');
+      const statusDot = document.getElementById('statusDot');
+      const statusLabel = document.getElementById('statusLabel');
+      const soundToggleBtn = document.getElementById('soundToggleBtn');
+      const iconSoundOn = document.getElementById('iconSoundOn');
+      const iconSoundOff = document.getElementById('iconSoundOff');
+      const soundLabel = document.getElementById('soundLabel');
+
+      const diyToggleBtn = document.getElementById('diyToggleBtn');
+      const diyBackdrop = document.getElementById('diyBackdrop');
+      const diyDrawer = document.getElementById('diyDrawer');
+      const closeDiyBtn = document.getElementById('closeDiyBtn');
+      const doneDiyBtn = document.getElementById('doneDiyBtn');
+      const swapColorsBtn = document.getElementById('swapColorsBtn');
+      const resetThemeBtn = document.getElementById('resetThemeBtn');
+      const paletteGrid = document.getElementById('paletteGrid');
+      const activePaletteName = document.getElementById('activePaletteName');
+      const customBgPicker = document.getElementById('customBgPicker');
+      const customBgHex = document.getElementById('customBgHex');
+      const customAccentPicker = document.getElementById('customAccentPicker');
+      const customAccentHex = document.getElementById('customAccentHex');
+
+      const loaderWrapper = document.getElementById('loaderWrapper');
+      const loaderEl = document.getElementById('loader');
+      const timerDisplayWrapper = document.getElementById('timerDisplayWrapper');
+      const hoursDisplay = document.getElementById('hoursDisplay');
+      const minutesDisplay = document.getElementById('minutesDisplay');
+      const secondsDisplay = document.getElementById('secondsDisplay');
+
+      const hoursInput = document.getElementById('hoursInput');
+      const minutesInput = document.getElementById('minutesInput');
+      const secondsInput = document.getElementById('secondsInput');
+
+      const displays = { hours: hoursDisplay, minutes: minutesDisplay, seconds: secondsDisplay };
+      const inputs = { hours: hoursInput, minutes: minutesInput, seconds: secondsInput };
+
+      const helperText = document.getElementById('helperText');
+      const startBtn = document.getElementById('startBtn');
+      const startBtnText = document.getElementById('startBtnText');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resetBtn = document.getElementById('resetBtn');
+
+      const presetBtns = document.querySelectorAll('.preset-btn');
+      const stepperBtns = document.querySelectorAll('.stepper-btn');
+      const digitTriggers = document.querySelectorAll('.digit-trigger');
+      const digitInputs = document.querySelectorAll('.digit-input');
+      const colons = document.querySelectorAll('.timer-colon');
+
+      // --- Color Math & Dynamic Theme Engine ---
+      function normalizeHex(hex) {
+        if (!hex) return null;
+        let clean = String(hex).trim().replace(/^#/, '');
+        if (/^[0-9a-fA-F]{3}$/.test(clean)) {
+          clean = clean.split('').map(function (c) { return c + c; }).join('');
+        }
+        if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+        return '#' + clean.toUpperCase();
+      }
+
+      function hexToRgb(hex) {
+        const norm = normalizeHex(hex) || '#000000';
+        const num = parseInt(norm.slice(1), 16);
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: num & 255,
+        };
+      }
+
+      function getLuminance(hex) {
+        const { r, g, b } = hexToRgb(hex);
+        const toLinear = function (v) {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+      }
+
+      function getContrastRatio(hex1, hex2) {
+        const l1 = getLuminance(hex1);
+        const l2 = getLuminance(hex2);
+        const lighter = Math.max(l1, l2);
+        const darker = Math.min(l1, l2);
+        return (lighter + 0.05) / (darker + 0.05);
+      }
+
+      function mixColors(hex1, hex2, weight) {
+        const c1 = hexToRgb(hex1);
+        const c2 = hexToRgb(hex2);
+        const w = Math.max(0, Math.min(1, weight));
+        const r = Math.round(c1.r * w + c2.r * (1 - w));
+        const g = Math.round(c1.g * w + c2.g * (1 - w));
+        const b = Math.round(c1.b * w + c2.b * (1 - w));
+        return '#' + [r, g, b].map(function (n) {
+          return n.toString(16).padStart(2, '0');
+        }).join('').toUpperCase();
+      }
+
+      function findMatchingPaletteIndex(bg, accent) {
+        const normBg = normalizeHex(bg);
+        const normAcc = normalizeHex(accent);
+        for (let i = 0; i < COLOR_PALETTES.length; i++) {
+          const p = COLOR_PALETTES[i];
+          const pBg = normalizeHex(p.bg);
+          const pAcc = normalizeHex(p.accent);
+          if ((pBg === normBg && pAcc === normAcc) || (pBg === normAcc && pAcc === normBg)) {
+            return i;
+          }
+        }
+        return -1;
+      }
+
+      function findMatchingPaletteName(bg, accent) {
+        const normBg = normalizeHex(bg);
+        const normAcc = normalizeHex(accent);
+        const idx = findMatchingPaletteIndex(normBg, normAcc);
+        if (idx !== -1) {
+          const p = COLOR_PALETTES[idx];
+          if (normalizeHex(p.bg) === normBg && normalizeHex(p.accent) === normAcc) {
+            return p.name;
+          }
+          const parts = p.name.split(' × ');
+          return parts.length === 2 ? `${parts[1]} × ${parts[0]}` : p.name;
+        }
+        return '自定义配色';
+      }
+
+      // --- Interactive 3D Palette Carousel State ---
+      const carousel = {
+        angle: 0,
+        targetAngle: null,
+        velocity: 0,
+        isDragging: false,
+        isHovering: false,
+        holdUntil: 0,
+        dragMoved: false,
+        startX: 0,
+        lastX: 0,
+        lastTime: 0,
+        lastFrameTime: 0,
+        innerEl: null,
+        rafId: null,
+        initialized: false,
+      };
+
+      function applyCarouselTransform() {
+        if (!carousel.innerEl) return;
+        carousel.innerEl.style.transform = `perspective(1000px) rotateX(-15deg) rotateY(${carousel.angle.toFixed(3)}deg)`;
+      }
+
+      function stepCarousel(now) {
+        const currentTime = now || performance.now();
+        const rawDt = carousel.lastFrameTime ? currentTime - carousel.lastFrameTime : 16.67;
+        const dt = Math.min(50, Math.max(4, rawDt));
+        carousel.lastFrameTime = currentTime;
+
+        if (!carousel.isDragging) {
+          if (carousel.targetAngle !== null) {
+            const delta = carousel.targetAngle - carousel.angle;
+            if (Math.abs(delta) < 0.08) {
+              carousel.angle = carousel.targetAngle;
+              carousel.targetAngle = null;
+              // 选中卡片居中定格展示 2.4 秒后，平滑恢复自动旋转
+              carousel.holdUntil = currentTime + 2400;
+            } else {
+              carousel.angle += delta * Math.min(1, 0.14 * (dt / 16.67));
+            }
+          } else if (Math.abs(carousel.velocity) > 0.02) {
+            carousel.angle += carousel.velocity * (dt / 16.67);
+            carousel.velocity *= Math.pow(0.92, dt / 16.67);
+            if (Math.abs(carousel.velocity) <= 0.02) {
+              carousel.velocity = 0;
+            }
+          } else if (!carousel.isHovering && currentTime >= carousel.holdUntil) {
+            // 持续柔和自转（约 20 秒旋转一圈，卡片按顺序从正前方掠过）
+            carousel.angle -= 18 * (dt / 1000);
+          }
+        }
+
+        applyCarouselTransform();
+
+        const isDrawerOpen = diyDrawer && !diyDrawer.classList.contains('translate-x-full');
+        if (isDrawerOpen || carousel.targetAngle !== null || Math.abs(carousel.velocity) > 0.02) {
+          carousel.rafId = requestAnimationFrame(stepCarousel);
+        } else {
+          carousel.rafId = null;
+          carousel.lastFrameTime = 0;
+        }
+      }
+
+      function ensureCarouselLoop() {
+        if (carousel.rafId === null) {
+          carousel.lastFrameTime = performance.now();
+          carousel.rafId = requestAnimationFrame(stepCarousel);
+        }
+      }
+
+      function centerPaletteCard(index, animate) {
+        if (index < 0 || index >= COLOR_PALETTES.length) return;
+        const step = 360 / COLOR_PALETTES.length;
+        const desired = -index * step;
+
+        if (!animate) {
+          carousel.angle = desired;
+          carousel.targetAngle = null;
+          carousel.velocity = 0;
+          carousel.holdUntil = performance.now() + 1800;
+          applyCarouselTransform();
+          ensureCarouselLoop();
+          return;
+        }
+
+        // Shortest angular rotation to bring the selected card directly to front center
+        const diff = (((desired - carousel.angle) % 360) + 540) % 360 - 180;
+        carousel.targetAngle = carousel.angle + diff;
+        carousel.velocity = 0;
+        ensureCarouselLoop();
+      }
+
+      function initPaletteCarousel() {
+        if (!paletteGrid || carousel.initialized) return;
+        carousel.initialized = true;
+
+        const cardsHtml = COLOR_PALETTES.map(function (palette, idx) {
+          const pAcc = normalizeHex(palette.accent);
+          const accRgb = hexToRgb(pAcc);
+          const shortNames = palette.name.split(' × ');
+          const badgeTextColor = getLuminance(pAcc) > 0.45 ? '#111111' : '#FFFFFF';
+
+          return `
+            <button
+              type="button"
+              data-index="${idx}"
+              data-bg="${palette.bg}"
+              data-accent="${palette.accent}"
+              data-name="${palette.name}"
+              data-short-primary="${shortNames[0]}"
+              title="${palette.name} (${palette.bg} / ${palette.accent})"
+              aria-label="应用配色 ${palette.name}"
+              style="--index: ${idx}; --color-card: ${accRgb.r}, ${accRgb.g}, ${accRgb.b}; --card-bg: ${palette.bg};"
+              class="card"
+            >
+              <div class="img">
+                <span
+                  data-role="card-badge"
+                  class="text-[8px] font-bold tracking-wider px-1.5 py-0.5 rounded-full leading-none shadow-sm"
+                  style="background-color: ${palette.accent}; color: ${badgeTextColor};"
+                >
+                  ${shortNames[0]}
+                </span>
+                <svg
+                  class="w-5 h-5 shrink-0 drop-shadow"
+                  style="color: ${palette.accent};"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 1L14.8 9.2L23 12L14.8 14.8L12 23L9.2 14.8L1 12L9.2 9.2L12 1Z" />
+                </svg>
+                <div class="w-full leading-tight">
+                  <div
+                    class="text-[9px] font-bold truncate drop-shadow"
+                    style="color: ${badgeTextColor};"
+                  >
+                    ${shortNames[1] || palette.name}
+                  </div>
+                  <div
+                    class="text-[7px] font-mono uppercase opacity-90"
+                    style="color: ${badgeTextColor};"
+                  >
+                    ${palette.accent}
+                  </div>
+                </div>
+              </div>
+            </button>
+          `;
+        }).join('');
+
+        paletteGrid.innerHTML = `
+          <div class="inner" style="--quantity: ${COLOR_PALETTES.length};">
+            ${cardsHtml}
+          </div>
+        `;
+
+        carousel.innerEl = paletteGrid.querySelector('.inner');
+
+        // Card click: select theme and rotate card smoothly to center
+        paletteGrid.querySelectorAll('.card').forEach(function (btn) {
+          btn.addEventListener('click', function (e) {
+            if (carousel.dragMoved) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+            const idx = Number(btn.dataset.index);
+            applyTheme(btn.dataset.bg, btn.dataset.accent, btn.dataset.name, {
+              centerIndex: idx,
+              animateCenter: true,
+            });
+          });
+        });
+
+        // Pause auto-rotation on hover for effortless card inspection & clicking
+        paletteGrid.addEventListener('mouseenter', function () {
+          carousel.isHovering = true;
+        });
+
+        paletteGrid.addEventListener('mouseleave', function () {
+          carousel.isHovering = false;
+          ensureCarouselLoop();
+        });
+
+        // Touch swipe rotation
+        paletteGrid.addEventListener(
+          'touchstart',
+          function (e) {
+            if (!e.touches || e.touches.length === 0) return;
+            carousel.isDragging = true;
+            carousel.dragMoved = false;
+            carousel.targetAngle = null;
+            carousel.velocity = 0;
+            carousel.startX = e.touches[0].clientX;
+            carousel.lastX = carousel.startX;
+            carousel.lastTime = performance.now();
+          },
+          { passive: true }
+        );
+
+        paletteGrid.addEventListener(
+          'touchmove',
+          function (e) {
+            if (!carousel.isDragging || !e.touches || e.touches.length === 0) return;
+            const currentX = e.touches[0].clientX;
+            const dx = currentX - carousel.lastX;
+            const now = performance.now();
+            const dt = Math.max(8, now - carousel.lastTime);
+
+            if (Math.abs(currentX - carousel.startX) > 5) {
+              carousel.dragMoved = true;
+              if (e.cancelable) e.preventDefault();
+            }
+
+            const stepDeg = dx * 0.65;
+            carousel.angle += stepDeg;
+            carousel.velocity = (stepDeg / dt) * 16;
+            carousel.lastX = currentX;
+            carousel.lastTime = now;
+            applyCarouselTransform();
+          },
+          { passive: false }
+        );
+
+        function endTouchDrag() {
+          if (!carousel.isDragging) return;
+          carousel.isDragging = false;
+          ensureCarouselLoop();
+          setTimeout(function () {
+            carousel.dragMoved = false;
+          }, 40);
+        }
+
+        paletteGrid.addEventListener('touchend', endTouchDrag);
+        paletteGrid.addEventListener('touchcancel', endTouchDrag);
+
+        // Mouse drag rotation
+        paletteGrid.addEventListener('mousedown', function (e) {
+          if (e.button !== 0) return;
+          carousel.isDragging = true;
+          carousel.dragMoved = false;
+          carousel.targetAngle = null;
+          carousel.velocity = 0;
+          carousel.startX = e.clientX;
+          carousel.lastX = carousel.startX;
+          carousel.lastTime = performance.now();
+          paletteGrid.classList.add('is-grabbing');
+        });
+
+        window.addEventListener('mousemove', function (e) {
+          if (!carousel.isDragging) return;
+          const dx = e.clientX - carousel.lastX;
+          const now = performance.now();
+          const dt = Math.max(8, now - carousel.lastTime);
+
+          if (Math.abs(e.clientX - carousel.startX) > 5) {
+            carousel.dragMoved = true;
+          }
+
+          const stepDeg = dx * 0.65;
+          carousel.angle += stepDeg;
+          carousel.velocity = (stepDeg / dt) * 16;
+          carousel.lastX = e.clientX;
+          carousel.lastTime = now;
+          applyCarouselTransform();
+        });
+
+        window.addEventListener('mouseup', function () {
+          if (!carousel.isDragging) return;
+          carousel.isDragging = false;
+          paletteGrid.classList.remove('is-grabbing');
+          ensureCarouselLoop();
+          setTimeout(function () {
+            carousel.dragMoved = false;
+          }, 40);
+        });
+
+        // Trackpad / mouse wheel horizontal or vertical rotation
+        paletteGrid.addEventListener(
+          'wheel',
+          function (e) {
+            e.preventDefault();
+            carousel.targetAngle = null;
+            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            carousel.velocity = -delta * 0.08;
+            ensureCarouselLoop();
+          },
+          { passive: false }
+        );
+      }
+
+      function applyTheme(bgHex, accentHex, customName, options) {
+        const opts = options || {};
+        const bg = normalizeHex(bgHex) || '#5E55A2';
+        const accent = normalizeHex(accentHex) || '#91C53A';
+        const lumBg = getLuminance(bg);
+        const lumAccent = getLuminance(accent);
+        const accentRgb = hexToRgb(accent);
+
+        // Compute harmonious surface, hover, track, muted text & loader step tones
+        let bgSurface, bgSurfaceHover, bgTrack, textSecondary, textMuted, loaderStep;
+
+        if (lumBg < 0.35) {
+          // Dark / medium-deep background
+          if (lumBg < 0.05) {
+            // Very dark (e.g., #000000 or #1A1A1D): lift surface slightly
+            bgSurface = mixColors(bg, '#FFFFFF', 0.89);
+            bgSurfaceHover = mixColors(bg, '#FFFFFF', 0.83);
+            bgTrack = mixColors(bg, '#FFFFFF', 0.86);
+          } else {
+            // Rich mid-dark tone (e.g., #5e55a2, #122e8a, #113056, #7B2CBF)
+            bgSurface = mixColors(bg, '#000000', 0.84);
+            bgSurfaceHover = mixColors(bg, '#000000', 0.76);
+            bgTrack = mixColors(bg, '#000000', 0.78);
+          }
+          textSecondary = mixColors('#FFFFFF', accent, 0.82);
+          textMuted = mixColors('#FFFFFF', accent, 0.72);
+          loaderStep = '#f2f2f2';
+        } else {
+          // Light / bright background (e.g., #f5efea, #f1dddf, #FBF1D7, #A1E6DD, #FFF000)
+          bgSurface = mixColors(bg, '#000000', 0.92);
+          bgSurfaceHover = mixColors(bg, '#000000', 0.86);
+          bgTrack = mixColors(bg, '#000000', 0.88);
+          textSecondary = mixColors(accent, '#111111', 0.75);
+          textMuted = mixColors(accent, '#222222', 0.62);
+          loaderStep = mixColors(accent, '#888888', 0.38);
+        }
+
+        // Ensure legible text on solid accent buttons/pills
+        const contrast = getContrastRatio(bg, accent);
+        const onAccent = contrast >= 2.4 ? bg : (lumAccent > 0.45 ? '#111111' : '#FFFFFF');
+
+        const root = document.documentElement;
+        root.style.setProperty('--bg-primary', bg);
+        root.style.setProperty('--bg-surface', bgSurface);
+        root.style.setProperty('--bg-surface-hover', bgSurfaceHover);
+        root.style.setProperty('--bg-track', bgTrack);
+        root.style.setProperty('--accent', accent);
+        root.style.setProperty('--accent-rgb', `${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}`);
+        root.style.setProperty('--on-accent', onAccent);
+        root.style.setProperty('--text-secondary', textSecondary);
+        root.style.setProperty('--text-muted', textMuted);
+        root.style.setProperty('--loader-step', loaderStep);
+
+        const resolvedName = customName || findMatchingPaletteName(bg, accent);
+        state.theme = { bg, accent, name: resolvedName };
+
+        // Sync DIY controls
+        activePaletteName.textContent = resolvedName;
+        customBgPicker.value = bg.toLowerCase();
+        customBgHex.value = bg;
+        customAccentPicker.value = accent.toLowerCase();
+        customAccentHex.value = accent;
+
+        renderPaletteCards();
+
+        const matchedIdx =
+          typeof opts.centerIndex === 'number'
+            ? opts.centerIndex
+            : findMatchingPaletteIndex(bg, accent);
+        if (matchedIdx !== -1) {
+          centerPaletteCard(matchedIdx, opts.animateCenter !== false);
+        }
+
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(state.theme));
+        } catch (e) {
+          // Ignore storage quota / private mode issues
+        }
+      }
+
+      function renderPaletteCards() {
+        if (!paletteGrid) return;
+        initPaletteCarousel();
+
+        const currentBg = normalizeHex(state.theme.bg);
+        const currentAcc = normalizeHex(state.theme.accent);
+
+        paletteGrid.querySelectorAll('.card').forEach(function (btn) {
+          const pBg = normalizeHex(btn.dataset.bg);
+          const pAcc = normalizeHex(btn.dataset.accent);
+          const isActive =
+            (pBg === currentBg && pAcc === currentAcc) ||
+            (pBg === currentAcc && pAcc === currentBg);
+
+          btn.classList.toggle('is-active-card', isActive);
+          const badge = btn.querySelector('[data-role="card-badge"]');
+          if (badge) {
+            badge.textContent = isActive ? '当前' : btn.dataset.shortPrimary;
+          }
+        });
+      }
+
+      function openDiyDrawer() {
+        diyBackdrop.classList.remove('hidden');
+        requestAnimationFrame(function () {
+          diyBackdrop.classList.remove('opacity-0');
+          diyDrawer.classList.remove('translate-x-full');
+          ensureCarouselLoop();
+        });
+        diyToggleBtn.setAttribute('aria-expanded', 'true');
+      }
+
+      function closeDiyDrawer() {
+        diyBackdrop.classList.add('opacity-0');
+        diyDrawer.classList.add('translate-x-full');
+        diyToggleBtn.setAttribute('aria-expanded', 'false');
+        setTimeout(function () {
+          diyBackdrop.classList.add('hidden');
+        }, 250);
+      }
+
+      function loadSavedTheme() {
+        try {
+          const raw = localStorage.getItem(THEME_STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.bg && parsed.accent) {
+              applyTheme(parsed.bg, parsed.accent, parsed.name, { animateCenter: false });
+              return;
+            }
+          }
+        } catch (e) {
+          // Ignore malformed storage
+        }
+        applyTheme('#5e55a2', '#91c53a', '藤紫色 × 钛啡绿', { animateCenter: false });
+      }
+
+      // --- Web Audio Chime (Zero external audio files) ---
+      function ensureAudioContext() {
+        if (!state.audioCtx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) {
+            state.audioCtx = new AudioCtx();
+          }
+        }
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(function () {});
+        }
+      }
+
+      function playCompletionChime() {
+        if (!state.soundEnabled) return;
+        try {
+          ensureAudioContext();
+          if (!state.audioCtx) return;
+
+          const now = state.audioCtx.currentTime;
+          const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+
+          notes.forEach(function (freq, idx) {
+            const osc = state.audioCtx.createOscillator();
+            const gain = state.audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+
+            gain.gain.setValueAtTime(0.0001, now + idx * 0.14);
+            gain.gain.exponentialRampToValueAtTime(0.18, now + idx * 0.14 + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.14 + 0.75);
+
+            osc.connect(gain);
+            gain.connect(state.audioCtx.destination);
+
+            osc.start(now + idx * 0.14);
+            osc.stop(now + idx * 0.14 + 0.8);
+          });
+        } catch (err) {
+          // Audio playback blocked or unsupported
+        }
+      }
+
+      // --- Formatting & Conversion Helpers ---
+      function pad2(num) {
+        return String(Math.max(0, Math.floor(num))).padStart(2, '0');
+      }
+
+      function msToParts(ms) {
+        const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return { hours, minutes, seconds };
+      }
+
+      function partsToMs(hours, minutes, seconds) {
+        const clampedH = Math.min(99, Math.max(0, hours));
+        const clampedM = Math.min(59, Math.max(0, minutes));
+        const clampedS = Math.min(59, Math.max(0, seconds));
+        return (clampedH * 3600 + clampedM * 60 + clampedS) * 1000;
+      }
+
+      // --- UI Rendering ---
+      function render() {
+        const { hours, minutes, seconds } = msToParts(state.remainingMs);
+        const formattedH = pad2(hours);
+        const formattedM = pad2(minutes);
+        const formattedS = pad2(seconds);
+
+        hoursDisplay.textContent = formattedH;
+        minutesDisplay.textContent = formattedM;
+        secondsDisplay.textContent = formattedS;
+
+        // Browser tab title sync
+        if (state.status === 'running') {
+          document.title = `${formattedH !== '00' ? formattedH + ':' : ''}${formattedM}:${formattedS} — Countdown`;
+        } else if (state.status === 'completed') {
+          document.title = `Time's Up! — Countdown`;
+        } else {
+          document.title = 'Countdown Timer';
+        }
+
+        // Top progress bar
+        const pct = state.configuredMs > 0
+          ? Math.min(100, Math.max(0, (state.remainingMs / state.configuredMs) * 100))
+          : 0;
+        progressBar.style.width = `${pct}%`;
+
+        const isRunning = state.status === 'running';
+        const isPaused = state.status === 'paused';
+        const isCompleted = state.status === 'completed';
+
+        // Loader visibility & pause state
+        if (isRunning || isPaused) {
+          loaderWrapper.classList.remove('hidden');
+          loaderEl.classList.toggle('is-paused', isPaused);
+        } else {
+          loaderWrapper.classList.add('hidden');
+          loaderEl.classList.remove('is-paused');
+        }
+
+        // Primary control buttons
+        startBtn.disabled = isRunning || state.remainingMs <= 0;
+        startBtnText.textContent = isPaused ? 'Resume' : 'Start';
+        pauseBtn.disabled = !isRunning;
+        resetBtn.disabled = state.status === 'idle' && state.remainingMs === state.configuredMs;
+
+        // Status indicator & helper text
+        if (isRunning) {
+          statusDot.className = 'w-2 h-2 rounded-full bg-[#91c53a] animate-pulse transition-colors duration-300';
+          statusLabel.textContent = 'Running';
+          helperText.textContent = 'Counting down...';
+        } else if (isPaused) {
+          statusDot.className = 'w-2 h-2 rounded-full bg-[#FFD166] transition-colors duration-300';
+          statusLabel.textContent = 'Paused';
+          helperText.textContent = 'Paused — press Resume or Reset';
+        } else if (isCompleted) {
+          statusDot.className = 'w-2 h-2 rounded-full bg-[#91c53a] transition-colors duration-300';
+          statusLabel.textContent = 'Completed';
+          helperText.textContent = "Time's up! Press Reset or choose a new duration";
+        } else {
+          statusDot.className = 'w-2 h-2 rounded-full bg-[#91c53a]/60 transition-colors duration-300';
+          statusLabel.textContent = 'Ready';
+          helperText.textContent = 'Click any digit to adjust duration';
+        }
+
+        // Colon breathing & completion pulse
+        colons.forEach(function (colon) {
+          colon.classList.toggle('colon-running', isRunning);
+        });
+        timerDisplayWrapper.classList.toggle('animate-complete-pulse', isCompleted);
+
+        // Lock inline editing & steppers while actively running
+        stepperBtns.forEach(function (btn) {
+          btn.disabled = isRunning;
+          btn.classList.toggle('invisible', isRunning);
+        });
+
+        digitTriggers.forEach(function (trigger) {
+          trigger.disabled = isRunning;
+          trigger.classList.toggle('cursor-default', isRunning);
+          trigger.classList.toggle('cursor-pointer', !isRunning);
+        });
+
+        // Highlight matching preset pill
+        presetBtns.forEach(function (btn) {
+          const presetMs = Number(btn.dataset.seconds) * 1000;
+          const isSelected = state.configuredMs === presetMs;
+
+          btn.classList.toggle('border-[var(--accent)]', isSelected);
+          btn.classList.toggle('bg-[var(--accent)]', isSelected);
+          btn.classList.toggle('text-[var(--on-accent)]', isSelected);
+          btn.classList.toggle('font-semibold', isSelected);
+          btn.classList.toggle('shadow-[0_4px_14px_rgba(var(--accent-rgb),0.28)]', isSelected);
+
+          btn.classList.toggle('border-[var(--accent)]/30', !isSelected);
+          btn.classList.toggle('bg-[var(--bg-surface)]', !isSelected);
+          btn.classList.toggle('text-[var(--text-muted)]', !isSelected);
+          btn.classList.toggle('font-medium', !isSelected);
+        });
+      }
+
+      // --- Timer Engine ---
+      function stopLoop() {
+        if (state.rafId !== null) {
+          cancelAnimationFrame(state.rafId);
+          state.rafId = null;
+        }
+      }
+
+      function tick() {
+        if (state.status !== 'running') return;
+
+        const now = performance.now();
+        const remaining = state.endTime - now;
+
+        if (remaining <= 0) {
+          state.remainingMs = 0;
+          state.status = 'completed';
+          state.endTime = null;
+          stopLoop();
+          render();
+          playCompletionChime();
+          return;
+        }
+
+        state.remainingMs = remaining;
+        render();
+        state.rafId = requestAnimationFrame(tick);
+      }
+
+      function startTimer() {
+        if (state.status === 'running') return;
+        if (state.remainingMs <= 0) {
+          if (state.configuredMs <= 0) return;
+          state.remainingMs = state.configuredMs;
+        }
+
+        ensureAudioContext();
+        state.status = 'running';
+        state.endTime = performance.now() + state.remainingMs;
+        render();
+        stopLoop();
+        state.rafId = requestAnimationFrame(tick);
+      }
+
+      function pauseTimer() {
+        if (state.status !== 'running') return;
+        state.remainingMs = Math.max(0, state.endTime - performance.now());
+        state.status = 'paused';
+        state.endTime = null;
+        stopLoop();
+        render();
+      }
+
+      function resetTimer() {
+        stopLoop();
+        state.status = 'idle';
+        state.endTime = null;
+        state.remainingMs = state.configuredMs;
+        render();
+      }
+
+      function setDurationMs(ms) {
+        stopLoop();
+        const safeMs = Math.max(1000, Math.min(99 * 3600 * 1000 + 59 * 60 * 1000 + 59 * 1000, ms));
+        state.configuredMs = safeMs;
+        state.remainingMs = safeMs;
+        state.status = 'idle';
+        state.endTime = null;
+        render();
+      }
+
+      function adjustUnit(unit, delta) {
+        if (state.status === 'running') return;
+        const parts = msToParts(state.remainingMs);
+
+        if (unit === 'hours') {
+          parts.hours = (parts.hours + delta + 100) % 100;
+        } else if (unit === 'minutes') {
+          parts.minutes = (parts.minutes + delta + 60) % 60;
+        } else if (unit === 'seconds') {
+          parts.seconds = (parts.seconds + delta + 60) % 60;
+        }
+
+        const nextMs = partsToMs(parts.hours, parts.minutes, parts.seconds);
+        state.configuredMs = nextMs;
+        state.remainingMs = nextMs;
+        state.status = 'idle';
+        state.endTime = null;
+        render();
+      }
+
+      // --- Inline Digit Editing ---
+      function openEditor(unit) {
+        if (state.status === 'running') return;
+        const trigger = displays[unit];
+        const input = inputs[unit];
+        if (!trigger || !input) return;
+
+        trigger.classList.add('hidden');
+        input.classList.remove('hidden');
+        input.value = trigger.textContent.trim();
+        input.focus();
+        input.select();
+      }
+
+      function commitEditor(unit, nextUnit) {
+        const trigger = displays[unit];
+        const input = inputs[unit];
+        if (!trigger || !input || input.classList.contains('hidden')) return;
+
+        const raw = input.value.replace(/\D/g, '');
+        const parsed = raw === '' ? 0 : parseInt(raw, 10);
+        const maxVal = unit === 'hours' ? 99 : 59;
+        const clamped = Math.min(maxVal, Math.max(0, parsed));
+
+        const parts = msToParts(state.remainingMs);
+        parts[unit] = clamped;
+
+        const nextMs = partsToMs(parts.hours, parts.minutes, parts.seconds);
+        state.configuredMs = nextMs;
+        state.remainingMs = nextMs;
+        state.status = 'idle';
+        state.endTime = null;
+
+        input.classList.add('hidden');
+        trigger.classList.remove('hidden');
+        render();
+
+        if (nextUnit && displays[nextUnit]) {
+          openEditor(nextUnit);
+        }
+      }
+
+      function cancelEditor(unit) {
+        const trigger = displays[unit];
+        const input = inputs[unit];
+        if (!trigger || !input) return;
+        input.classList.add('hidden');
+        trigger.classList.remove('hidden');
+      }
+
+      // --- Event Listeners ---
+      startBtn.addEventListener('click', startTimer);
+      pauseBtn.addEventListener('click', pauseTimer);
+      resetBtn.addEventListener('click', resetTimer);
+
+      presetBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const secs = Number(btn.dataset.seconds) || DEFAULT_SECONDS;
+          setDurationMs(secs * 1000);
+        });
+      });
+
+      stepperBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const unit = btn.dataset.unit;
+          const delta = btn.dataset.action === 'inc' ? 1 : -1;
+          adjustUnit(unit, delta);
+        });
+      });
+
+      digitTriggers.forEach(function (trigger) {
+        trigger.addEventListener('click', function () {
+          openEditor(trigger.dataset.unit);
+        });
+      });
+
+      const unitOrder = ['hours', 'minutes', 'seconds'];
+
+      digitInputs.forEach(function (input) {
+        const unit = input.dataset.unit;
+
+        input.addEventListener('input', function () {
+          input.value = input.value.replace(/\D/g, '').slice(0, 2);
+        });
+
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const idx = unitOrder.indexOf(unit);
+            const next = idx < unitOrder.length - 1 ? unitOrder[idx + 1] : null;
+            commitEditor(unit, next);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelEditor(unit);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            commitEditor(unit, null);
+            adjustUnit(unit, 1);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            commitEditor(unit, null);
+            adjustUnit(unit, -1);
+          }
+        });
+
+        input.addEventListener('blur', function () {
+          commitEditor(unit, null);
+        });
+      });
+
+      // Mouse wheel adjustment on digit columns when not running
+      document.querySelectorAll('.unit-group').forEach(function (group) {
+        group.addEventListener(
+          'wheel',
+          function (e) {
+            if (state.status === 'running') return;
+            e.preventDefault();
+            const unit = group.dataset.unit;
+            const delta = e.deltaY < 0 ? 1 : -1;
+            adjustUnit(unit, delta);
+          },
+          { passive: false }
+        );
+      });
+
+      // Sound toggle button
+      soundToggleBtn.addEventListener('click', function () {
+        state.soundEnabled = !state.soundEnabled;
+        soundToggleBtn.setAttribute('aria-pressed', String(state.soundEnabled));
+        iconSoundOn.classList.toggle('hidden', !state.soundEnabled);
+        iconSoundOff.classList.toggle('hidden', state.soundEnabled);
+        soundLabel.textContent = state.soundEnabled ? 'Sound On' : 'Muted';
+        if (state.soundEnabled) {
+          ensureAudioContext();
+        }
+      });
+
+      // DIY Theme Drawer Event Listeners
+      diyToggleBtn.addEventListener('click', openDiyDrawer);
+      closeDiyBtn.addEventListener('click', closeDiyDrawer);
+      doneDiyBtn.addEventListener('click', closeDiyDrawer);
+      diyBackdrop.addEventListener('click', closeDiyDrawer);
+
+      swapColorsBtn.addEventListener('click', function () {
+        applyTheme(state.theme.accent, state.theme.bg);
+      });
+
+      resetThemeBtn.addEventListener('click', function () {
+        applyTheme('#5e55a2', '#91c53a', '藤紫色 × 钛啡绿');
+      });
+
+      customBgPicker.addEventListener('input', function () {
+        applyTheme(customBgPicker.value, state.theme.accent);
+      });
+
+      customBgHex.addEventListener('change', function () {
+        const valid = normalizeHex(customBgHex.value);
+        if (valid) {
+          applyTheme(valid, state.theme.accent);
+        } else {
+          customBgHex.value = state.theme.bg;
+        }
+      });
+
+      customAccentPicker.addEventListener('input', function () {
+        applyTheme(state.theme.bg, customAccentPicker.value);
+      });
+
+      customAccentHex.addEventListener('change', function () {
+        const valid = normalizeHex(customAccentHex.value);
+        if (valid) {
+          applyTheme(state.theme.bg, valid);
+        } else {
+          customAccentHex.value = state.theme.accent;
+        }
+      });
+
+      // Keyboard shortcuts (Space: Start/Pause, R: Reset, Escape: Close DIY)
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !diyDrawer.classList.contains('translate-x-full')) {
+          closeDiyDrawer();
+          return;
+        }
+
+        const activeTag = document.activeElement ? document.activeElement.tagName : '';
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (state.status === 'running') {
+            pauseTimer();
+          } else {
+            startTimer();
+          }
+        } else if (e.key === 'r' || e.key === 'R') {
+          if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            resetTimer();
+          }
+        }
+      });
+
+      // Keep countdown accurate when returning to backgrounded tab
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && state.status === 'running') {
+          tick();
+        }
+      });
+
+      // Load saved/default theme and initial render
+      loadSavedTheme();
+      render();
+    })();
+  </script>
+</body>
+</html>
